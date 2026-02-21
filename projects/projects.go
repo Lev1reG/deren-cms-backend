@@ -66,7 +66,7 @@ func dbToProject(db *database.Project) *Project {
 	}
 }
 
-//encore:api auth path=/projects method=GET
+//encore:api public path=/projects method=GET
 func List(ctx context.Context) (*ListResponse, error) {
 	pool, err := database.Get(ctx)
 	if err != nil {

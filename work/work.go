@@ -81,7 +81,7 @@ func dbToWork(db *database.WorkExperience) *WorkExperience {
 	}
 }
 
-//encore:api auth path=/work method=GET
+//encore:api public path=/work method=GET
 func List(ctx context.Context) (*ListResponse, error) {
 	pool, err := database.Get(ctx)
 	if err != nil {

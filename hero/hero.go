@@ -34,7 +34,7 @@ func dbToHero(db *database.Hero) *Hero {
 	}
 }
 
-//encore:api auth path=/hero method=GET
+//encore:api public path=/hero method=GET
 func Get(ctx context.Context) (*Hero, error) {
 	pool, err := database.Get(ctx)
 	if err != nil {
