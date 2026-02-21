@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"encore.dev/beta/auth"
+	"encore.dev/beta/errs"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -119,4 +121,16 @@ func getVerifyingKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 	}
 
 	return nil, fmt.Errorf("key with kid %s not found", kid)
+}
+
+//encore:authhandler
+func AuthHandler(ctx context.Context, token string) (auth.UID, *UserData, error) {
+	userData, err := ValidateToken(ctx, token)
+	if err != nil {
+		return "", nil, &errs.Error{
+			Code:    errs.Unauthenticated,
+			Message: err.Error(),
+		}
+	}
+	return auth.UID(userData.UserID), userData, nil
 }
