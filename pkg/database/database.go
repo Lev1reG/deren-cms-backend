@@ -47,11 +47,12 @@ func setup(ctx context.Context) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("failed to extract project ref from SupabaseURL")
 	}
 
-	// Build connection string
+	// Build connection string using Session Pooler for better IPv4 support
+	// Format: postgresql://postgres.[project-ref]:[password]@aws-1-ap-southeast-2.pooler.supabase.com:5432/postgres
 	connString := fmt.Sprintf(
-		"postgresql://postgres:%s@db.%s.supabase.co:5432/postgres",
-		secrets.SupabaseDBPassword,
+		"postgresql://postgres.%s:%s@aws-1-ap-southeast-2.pooler.supabase.com:5432/postgres",
 		projectRef,
+		secrets.SupabaseDBPassword,
 	)
 
 	config, err := pgxpool.ParseConfig(connString)
