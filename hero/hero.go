@@ -3,7 +3,6 @@ package hero
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"encore.app/pkg/database"
@@ -48,24 +47,16 @@ func Get(ctx context.Context) (*Hero, error) {
 	`
 
 	var db database.Hero
-	var phrasesBytes []byte
 
 	err = pool.QueryRow(ctx, query).Scan(
 		&db.ID,
-		&phrasesBytes,
+		&db.Phrases,
 		&db.Description,
 		&db.UpdatedAt,
 	)
 
 	if err != nil {
 		return nil, errs.WrapCode(err, errs.Internal, "failed to get hero content")
-	}
-
-	// Parse phrases array
-	if len(phrasesBytes) > 0 {
-		if err := json.Unmarshal(phrasesBytes, &db.Phrases); err != nil {
-			db.Phrases = []string{}
-		}
 	}
 
 	return dbToHero(&db), nil
@@ -85,8 +76,6 @@ func Update(ctx context.Context, req *UpdateRequest) (*Hero, error) {
 		return nil, errs.WrapCode(err, errs.Internal, "failed to get database connection")
 	}
 
-	phrasesJSON, _ := json.Marshal(req.Phrases)
-
 	query := `
 		UPDATE hero
 		SET phrases = $1, description = $2, updated_at = NOW()
@@ -95,24 +84,16 @@ func Update(ctx context.Context, req *UpdateRequest) (*Hero, error) {
 	`
 
 	var db database.Hero
-	var phrasesBytes []byte
 
-	err = pool.QueryRow(ctx, query, phrasesJSON, req.Description).Scan(
+	err = pool.QueryRow(ctx, query, req.Phrases, req.Description).Scan(
 		&db.ID,
-		&phrasesBytes,
+		&db.Phrases,
 		&db.Description,
 		&db.UpdatedAt,
 	)
 
 	if err != nil {
 		return nil, errs.WrapCode(err, errs.Internal, "failed to update hero content")
-	}
-
-	// Parse phrases array
-	if len(phrasesBytes) > 0 {
-		if err := json.Unmarshal(phrasesBytes, &db.Phrases); err != nil {
-			db.Phrases = []string{}
-		}
 	}
 
 	return dbToHero(&db), nil

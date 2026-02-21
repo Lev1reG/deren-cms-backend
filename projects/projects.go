@@ -4,7 +4,6 @@ package projects
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -89,27 +88,19 @@ func List(ctx context.Context) (*ListResponse, error) {
 	var projects []*Project
 	for rows.Next() {
 		var db database.Project
-		var techBytes []byte
 
 		err := rows.Scan(
 			&db.ID,
 			&db.Title,
 			&db.Description,
 			&db.Href,
-			&techBytes,
+			&db.Technologies,
 			&db.DisplayOrder,
 			&db.CreatedAt,
 			&db.UpdatedAt,
 		)
 		if err != nil {
 			return nil, errs.WrapCode(err, errs.Internal, "failed to scan project row")
-		}
-
-		// Parse technologies array
-		if len(techBytes) > 0 {
-			if err := json.Unmarshal(techBytes, &db.Technologies); err != nil {
-				db.Technologies = []string{}
-			}
 		}
 
 		projects = append(projects, dbToProject(&db))
@@ -137,8 +128,6 @@ func Create(ctx context.Context, req *CreateRequest) (*Project, error) {
 		return nil, errs.WrapCode(err, errs.Internal, "failed to get database connection")
 	}
 
-	techJSON, _ := json.Marshal(req.Technologies)
-
 	query := `
 		INSERT INTO projects (title, description, href, technologies, display_order)
 		VALUES ($1, $2, $3, $4, $5)
@@ -146,20 +135,19 @@ func Create(ctx context.Context, req *CreateRequest) (*Project, error) {
 	`
 
 	var db database.Project
-	var techBytes []byte
 
 	err = pool.QueryRow(ctx, query,
 		req.Title,
 		req.Description,
 		req.Href,
-		techJSON,
+		req.Technologies,
 		req.DisplayOrder,
 	).Scan(
 		&db.ID,
 		&db.Title,
 		&db.Description,
 		&db.Href,
-		&techBytes,
+		&db.Technologies,
 		&db.DisplayOrder,
 		&db.CreatedAt,
 		&db.UpdatedAt,
@@ -167,13 +155,6 @@ func Create(ctx context.Context, req *CreateRequest) (*Project, error) {
 
 	if err != nil {
 		return nil, errs.WrapCode(err, errs.Internal, "failed to create project")
-	}
-
-	// Parse technologies array
-	if len(techBytes) > 0 {
-		if err := json.Unmarshal(techBytes, &db.Technologies); err != nil {
-			db.Technologies = []string{}
-		}
 	}
 
 	return dbToProject(&db), nil
@@ -223,8 +204,7 @@ func Update(ctx context.Context, id string, req *UpdateRequest) (*Project, error
 	}
 	if req.Technologies != nil {
 		updates = append(updates, fmt.Sprintf("technologies = $%d", argNum))
-		techJSON, _ := json.Marshal(req.Technologies)
-		args = append(args, techJSON)
+		args = append(args, req.Technologies)
 		argNum++
 	}
 	if req.DisplayOrder != nil {
@@ -248,14 +228,13 @@ func Update(ctx context.Context, id string, req *UpdateRequest) (*Project, error
 	`, joinUpdates(updates), argNum)
 
 	var db database.Project
-	var techBytes []byte
 
 	err = pool.QueryRow(ctx, query, args...).Scan(
 		&db.ID,
 		&db.Title,
 		&db.Description,
 		&db.Href,
-		&techBytes,
+		&db.Technologies,
 		&db.DisplayOrder,
 		&db.CreatedAt,
 		&db.UpdatedAt,
@@ -266,13 +245,6 @@ func Update(ctx context.Context, id string, req *UpdateRequest) (*Project, error
 	}
 	if err != nil {
 		return nil, errs.WrapCode(err, errs.Internal, "failed to update project")
-	}
-
-	// Parse technologies array
-	if len(techBytes) > 0 {
-		if err := json.Unmarshal(techBytes, &db.Technologies); err != nil {
-			db.Technologies = []string{}
-		}
 	}
 
 	return dbToProject(&db), nil
