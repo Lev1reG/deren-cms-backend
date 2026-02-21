@@ -1,0 +1,12 @@
+{
+    "mcpServers": {
+        "encore-mcp": {
+            "args": [
+                "mcp",
+                "run",
+                "--app=gmu6g"
+            ],
+            "command": "encore"
+        }
+    }
+}
