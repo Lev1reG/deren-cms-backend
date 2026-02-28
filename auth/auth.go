@@ -3,8 +3,9 @@ package auth
 
 import (
 	"context"
-	"crypto/rsa"
 	"fmt"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,16 @@ type UserData struct {
 	Role   string
 }
 
+// AuthParams represents the authentication parameters extracted from the request.
+// It supports both Authorization header and cookie-based authentication.
+type AuthParams struct {
+	// Token is the raw Authorization header value (without any parsing).
+	Token string `header:"Authorization"`
+
+	// AuthTokenCookie is the auth_token cookie value.
+	AuthTokenCookie *http.Cookie `cookie:"auth_token"`
+}
+
 // secrets holds the auth-related secrets.
 var secrets struct {
 	SupabaseURL     string
@@ -30,13 +41,13 @@ var secrets struct {
 // jwksCache holds cached JWKS keys.
 var jwksCache struct {
 	sync.RWMutex
-	keys     map[string]*rsa.PublicKey
+	keys     map[string]verifyingKey
 	fetched  time.Time
 	duration time.Duration
 }
 
 func init() {
-	jwksCache.keys = make(map[string]*rsa.PublicKey)
+	jwksCache.keys = make(map[string]verifyingKey)
 	jwksCache.duration = 1 * time.Hour
 }
 
@@ -66,10 +77,13 @@ func ValidateToken(ctx context.Context, tokenString string) (*UserData, error) {
 
 	// Parse and verify the token
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+		// Accept both RSA and EC signing methods
+		switch token.Method.(type) {
+		case *jwt.SigningMethodRSA, *jwt.SigningMethodECDSA:
+			return key, nil
+		default:
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		return key, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify token: %w", err)
@@ -100,8 +114,8 @@ func ValidateToken(ctx context.Context, tokenString string) (*UserData, error) {
 	return userData, nil
 }
 
-// getVerifyingKey retrieves the RSA public key for the given kid from JWKS cache or fetches it.
-func getVerifyingKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
+// getVerifyingKey retrieves the public key for the given kid from JWKS cache or fetches it.
+func getVerifyingKey(ctx context.Context, kid string) (verifyingKey, error) {
 	// Check cache first
 	jwksCache.RLock()
 	if key, ok := jwksCache.keys[kid]; ok && time.Since(jwksCache.fetched) < jwksCache.duration {
@@ -126,7 +140,26 @@ func getVerifyingKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 }
 
 //encore:authhandler
-func AuthHandler(ctx context.Context, token string) (auth.UID, *UserData, error) {
+func AuthHandler(ctx context.Context, p *AuthParams) (auth.UID, *UserData, error) {
+	var token string
+
+	// Try Authorization header first (remove "Bearer " prefix if present)
+	if p.Token != "" {
+		token = strings.TrimPrefix(p.Token, "Bearer ")
+	}
+
+	// Fall back to cookie
+	if token == "" && p.AuthTokenCookie != nil {
+		token = p.AuthTokenCookie.Value
+	}
+
+	if token == "" {
+		return "", nil, &errs.Error{
+			Code:    errs.Unauthenticated,
+			Message: "invalid auth param",
+		}
+	}
+
 	userData, err := ValidateToken(ctx, token)
 	if err != nil {
 		return "", nil, &errs.Error{

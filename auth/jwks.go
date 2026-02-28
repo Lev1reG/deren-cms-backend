@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
@@ -19,13 +21,21 @@ type jwksResponse struct {
 type jwksKey struct {
 	Kty string   `json:"kty"`
 	Kid string   `json:"kid"`
+	Alg string   `json:"alg"`
 	Use string   `json:"use"`
-	N   string   `json:"n"`
-	E   string   `json:"e"`
-	X5c []string `json:"x5c"`
+	Crv string   `json:"crv,omitempty"`
+	N   string   `json:"n,omitempty"`
+	E   string   `json:"e,omitempty"`
+	X   string   `json:"x,omitempty"`
+	Y   string   `json:"y,omitempty"`
+	X5c []string `json:"x5c,omitempty"`
 }
 
-// fetchJWKS fetches the JWKS from Supabase and caches the keys.
+// verifyingKey represents any type of public key that can verify JWTs.
+// We use interface{} to support both RSA and EC keys.
+type verifyingKey interface{}
+
+// fetchJWKS fetches JWKS from Supabase and caches keys.
 func fetchJWKS(ctx context.Context) error {
 	if secrets.SupabaseJWKSURL == "" {
 		return fmt.Errorf("SupabaseJWKSURL secret not configured")
@@ -52,19 +62,26 @@ func fetchJWKS(ctx context.Context) error {
 		return fmt.Errorf("failed to decode JWKS: %w", err)
 	}
 
-	// Convert to verifying keys
-	keys := make(map[string]*rsa.PublicKey)
+	// Convert to verifying keys - support both RSA and EC
+	keys := make(map[string]verifyingKey)
 	for _, key := range jwks.Keys {
-		if key.Kty != "RSA" {
-			continue
+		var vk verifyingKey
+		var err error
+
+		switch key.Kty {
+		case "RSA":
+			vk, err = jwkToRSA(key)
+		case "EC":
+			vk, err = jwkToEC(key)
+		default:
+			continue // Skip unsupported key types
 		}
 
-		rsaKey, err := jwkToRSA(key)
 		if err != nil {
 			continue // Skip invalid keys
 		}
 
-		keys[key.Kid] = rsaKey
+		keys[key.Kid] = vk
 	}
 
 	// Update cache
@@ -78,6 +95,10 @@ func fetchJWKS(ctx context.Context) error {
 
 // jwkToRSA converts a JWK to an RSA public key.
 func jwkToRSA(jwk jwksKey) (*rsa.PublicKey, error) {
+	if jwk.N == "" || jwk.E == "" {
+		return nil, fmt.Errorf("missing RSA key parameters")
+	}
+
 	nBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode n: %w", err)
@@ -94,5 +115,43 @@ func jwkToRSA(jwk jwksKey) (*rsa.PublicKey, error) {
 	return &rsa.PublicKey{
 		N: n,
 		E: int(e.Int64()),
+	}, nil
+}
+
+// jwkToEC converts a JWK to an ECDSA public key.
+func jwkToEC(jwk jwksKey) (*ecdsa.PublicKey, error) {
+	if jwk.X == "" || jwk.Y == "" {
+		return nil, fmt.Errorf("missing EC key parameters")
+	}
+
+	xBytes, err := base64.RawURLEncoding.DecodeString(jwk.X)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode x: %w", err)
+	}
+
+	yBytes, err := base64.RawURLEncoding.DecodeString(jwk.Y)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode y: %w", err)
+	}
+
+	x := new(big.Int).SetBytes(xBytes)
+	y := new(big.Int).SetBytes(yBytes)
+
+	var curve elliptic.Curve
+	switch jwk.Crv {
+	case "P-256":
+		curve = elliptic.P256()
+	case "P-384":
+		curve = elliptic.P384()
+	case "P-521":
+		curve = elliptic.P521()
+	default:
+		return nil, fmt.Errorf("unsupported EC curve: %s", jwk.Crv)
+	}
+
+	return &ecdsa.PublicKey{
+		Curve: curve,
+		X:     x,
+		Y:     y,
 	}, nil
 }
