@@ -93,7 +93,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusUnauthorized {
+		if resp.StatusCode == http.StatusBadRequest {
 			response.WriteError(w, errs.Unauthenticated, "Invalid email or password")
 			return
 		}
