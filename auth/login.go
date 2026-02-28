@@ -2,8 +2,8 @@ package auth
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -46,10 +46,21 @@ func (r *LoginRequest) Validate() error {
 	return nil
 }
 
-//encore:api public path=/auth/login method=POST
-func Login(ctx context.Context, req *LoginRequest) (*LoginResponse, error) {
+//encore:api public raw path=/auth/login method=POST
+func Login(w http.ResponseWriter, r *http.Request) {
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err := req.Validate(); err != nil {
-		return nil, err
+		var eErr *errs.Error
+		if errors.As(err, &eErr) {
+			http.Error(w, eErr.Message, http.StatusBadRequest)
+		} else {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
+		return
 	}
 
 	// Call Supabase Auth API
@@ -61,43 +72,69 @@ func Login(ctx context.Context, req *LoginRequest) (*LoginResponse, error) {
 		"password": req.Password,
 	})
 	if err != nil {
-		return nil, errs.WrapCode(err, errs.Internal, "failed to encode request")
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(r.Context(), "POST", url, bytes.NewReader(body))
 	if err != nil {
-		return nil, errs.WrapCode(err, errs.Internal, "failed to create request")
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("apikey", secrets.SupabaseAnonKey)
 
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
-		return nil, errs.WrapCode(err, errs.Internal, "failed to call Supabase auth")
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusUnauthorized {
-			return nil, &errs.Error{
-				Code:    errs.Unauthenticated,
-				Message: "Invalid email or password",
-			}
+			http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+			return
 		}
-		return nil, &errs.Error{
-			Code:    errs.Internal,
-			Message: "Authentication service error",
-		}
+		http.Error(w, "Authentication service error", http.StatusInternalServerError)
+		return
 	}
 
 	var authResp supabaseAuthResponse
 	if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
-		return nil, errs.WrapCode(err, errs.Internal, "failed to decode response")
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
 	}
 
-	return &LoginResponse{
+	// Set httpOnly cookie for access token
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    authResp.AccessToken,
+		Expires:  time.Now().Add(time.Duration(authResp.ExpiresIn) * time.Second),
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		Path:     "/",
+	})
+
+	// Set refresh token cookie (non-httpOnly for frontend to read)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    authResp.RefreshToken,
+		Expires:  time.Now().Add(30 * 24 * time.Hour), // 30 days
+		HttpOnly: false,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		Path:     "/",
+	})
+
+	// Return user data
+	respData := LoginResponse{
 		UserID: authResp.User.ID,
 		Email:  authResp.User.Email,
 		Role:   authResp.User.Role,
-	}, nil
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(respData)
 }
