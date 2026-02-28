@@ -1,10 +1,9 @@
 package auth
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"encore.app/pkg/response"
@@ -35,15 +34,20 @@ func Refresh(w http.ResponseWriter, r *http.Request) {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	apiURL := secrets.SupabaseURL + "/auth/v1/token?grant_type=refresh_token"
 
-	formData := url.Values{}
-	formData.Set("refresh_token", refreshCookie.Value)
-
-	httpReq, err := http.NewRequest("POST", apiURL, strings.NewReader(formData.Encode()))
+	body, err := json.Marshal(map[string]string{
+		"refresh_token": refreshCookie.Value,
+	})
 	if err != nil {
 		response.WriteError(w, errs.Internal, "Internal error")
 		return
 	}
-	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	httpReq, err := http.NewRequest("POST", apiURL, bytes.NewReader(body))
+	if err != nil {
+		response.WriteError(w, errs.Internal, "Internal error")
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("apikey", secrets.SupabaseAnonKey)
 
 	resp, err := httpClient.Do(httpReq)
