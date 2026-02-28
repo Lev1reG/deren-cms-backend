@@ -6,6 +6,9 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"encore.app/pkg/response"
+	"encore.dev/beta/errs"
 )
 
 // RefreshResponse is the response for successful token refresh.
@@ -19,12 +22,12 @@ func Refresh(w http.ResponseWriter, r *http.Request) {
 	// Get refresh token from cookie
 	refreshCookie, err := r.Cookie("refresh_token")
 	if err != nil {
-		http.Error(w, "Refresh token not found", http.StatusUnauthorized)
+		response.WriteError(w, errs.Unauthenticated, "Refresh token not found")
 		return
 	}
 
 	if refreshCookie.Value == "" {
-		http.Error(w, "Refresh token is empty", http.StatusUnauthorized)
+		response.WriteError(w, errs.Unauthenticated, "Refresh token is empty")
 		return
 	}
 
@@ -37,7 +40,7 @@ func Refresh(w http.ResponseWriter, r *http.Request) {
 
 	httpReq, err := http.NewRequest("POST", apiURL, strings.NewReader(formData.Encode()))
 	if err != nil {
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		response.WriteError(w, errs.Internal, "Internal error")
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -45,19 +48,19 @@ func Refresh(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		response.WriteError(w, errs.Internal, "Internal error")
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		http.Error(w, "Invalid or expired refresh token", http.StatusUnauthorized)
+		response.WriteError(w, errs.Unauthenticated, "Invalid or expired refresh token")
 		return
 	}
 
 	var authResp supabaseAuthResponse
 	if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		response.WriteError(w, errs.Internal, "Internal error")
 		return
 	}
 
