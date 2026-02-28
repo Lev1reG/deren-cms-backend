@@ -15,14 +15,14 @@ type ErrorResponse struct {
 	Details map[string]interface{} `json:"details"`
 }
 
-// writeError writes a standardized error response to the HTTP response writer.
+// WriteError writes a standardized error response to the HTTP response writer.
 // It sets the Content-Type header to application/json, sets the appropriate
 // HTTP status code based on the error code, and writes the error response as JSON.
 //
 // Example:
 //
-//	writeError(w, errs.Unauthenticated, "Invalid email or password")
-func writeError(w http.ResponseWriter, code errs.ErrCode, message string) {
+//	response.WriteError(w, errs.Unauthenticated, "Invalid email or password")
+func WriteError(w http.ResponseWriter, code errs.ErrCode, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(httpStatusForCode(code))
 

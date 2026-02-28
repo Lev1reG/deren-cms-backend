@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"encore.app/pkg/response"
 	"encore.dev/beta/errs"
 )
 
@@ -50,15 +51,15 @@ func (r *LoginRequest) Validate() error {
 func Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		response.WriteError(w, errs.InvalidArgument, err.Error())
 		return
 	}
 	if err := req.Validate(); err != nil {
 		var eErr *errs.Error
 		if errors.As(err, &eErr) {
-			http.Error(w, eErr.Message, http.StatusBadRequest)
+			response.WriteError(w, eErr.Code, eErr.Message)
 		} else {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			response.WriteError(w, errs.InvalidArgument, err.Error())
 		}
 		return
 	}
@@ -72,13 +73,13 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		"password": req.Password,
 	})
 	if err != nil {
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		response.WriteError(w, errs.Internal, "Internal error")
 		return
 	}
 
 	httpReq, err := http.NewRequestWithContext(r.Context(), "POST", url, bytes.NewReader(body))
 	if err != nil {
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		response.WriteError(w, errs.Internal, "Internal error")
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -86,23 +87,23 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		response.WriteError(w, errs.Internal, "Internal error")
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusUnauthorized {
-			http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+			response.WriteError(w, errs.Unauthenticated, "Invalid email or password")
 			return
 		}
-		http.Error(w, "Authentication service error", http.StatusInternalServerError)
+		response.WriteError(w, errs.Internal, "Authentication service error")
 		return
 	}
 
 	var authResp supabaseAuthResponse
 	if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		response.WriteError(w, errs.Internal, "Internal error")
 		return
 	}
 
