@@ -22,6 +22,7 @@ type UserData struct {
 
 // secrets holds the auth-related secrets.
 var secrets struct {
+	SupabaseURL     string
 	SupabaseJWKSURL string
 	SupabaseAnonKey string
 }
